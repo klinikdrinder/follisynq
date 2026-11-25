@@ -1,5 +1,7 @@
 {
-  "framework": "nextjs",
+  "framework": null,
+  "buildCommand": "npm run build",
+  "installCommand": "npm ci",
   "outputDirectory": "out",
   "headers": [
     { "source": "/(.*)", "headers": [

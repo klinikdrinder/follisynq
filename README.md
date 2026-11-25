@@ -64,7 +64,7 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_…
 Only the publishable key goes into the frontend; RLS protects every table. **Never** put the service-role key in Vercel or in this app.
 
 ## 5. Vercel deployment
-- Framework: Next.js. Build: `npm run build`. Output: `out`. These settings are in `vercel.json`.
+- Framework preset: **Other** (pure static hosting of the Next.js static export). Build: `npm run build`. Output: `out`. These settings are in `vercel.json`.
 - Set the two `NEXT_PUBLIC_*` variables for Production and Preview. The code also falls back to the public project values.
 - `vercel.json` sets the security headers: HSTS, CSP (Supabase only), `X-Frame-Options: DENY`, and a camera/microphone permissions policy.
 - There are no analytics, session replay or error-reporting SDKs, so no patient data can leak through them.
