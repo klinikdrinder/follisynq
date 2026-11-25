@@ -10,10 +10,10 @@ import { MediaGrid } from '@/components/MediaGallery';
 import { CameraModal } from '@/components/Camera';
 import { useQuery } from '@/lib/useQuery';
 import { one, list, save } from '@/lib/repo';
-import { ensureInstance, currentParams, saveParamVersion, consentsFor, consentAllows, createBatch, Values, instanceId } from '@/lib/clinical';
+import { ensureInstance, currentParams, saveParamVersion, consentsFor, consentAllows, createBatch, Values, instanceId, grantRecordingConsent } from '@/lib/clinical';
 import { CaptureContext, MediaType, importExternal, checkStorage } from '@/lib/media';
 import { uuid, isoDate, daysBetween, formatBytes } from '@/lib/naming';
-import { ArrowLeft, ChevronLeft, ChevronRight, Video, Camera, Mic, Upload, Save, Layers, Info, ShieldAlert, Plus, CalendarClock, History } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, Video, Camera, Mic, Upload, Save, Layers, Info, Check, Plus, CalendarClock, History } from 'lucide-react';
 
 const STATUSES = [
   { v: 'not_started', l: 'Not started' }, { v: 'media_recorded', l: 'Media recorded' }, { v: 'in_progress', l: 'In progress' },
@@ -43,6 +43,7 @@ export default function StagePage() {
   const importRef = useRef<HTMLInputElement>(null);
   const loadedKey = useRef('');
   const ctxCache = useRef<CaptureContext | null>(null);
+  const [askConsent, setAskConsent] = useState<null | { mode?: MediaType; files?: File[] }>(null);
 
   const data = useData(async () => {
     if (!sessionId || !stage) return null;
@@ -122,19 +123,19 @@ export default function StagePage() {
     };
   }
 
-  async function openCamera(mode: MediaType) {
-    if (!consentAllows(consents, mode)) { toast.err(`${mode === 'photo' ? 'Photography' : mode === 'video' ? 'Video' : 'Audio'} consent has not been granted for this patient.`); return; }
+  async function openCamera(mode: MediaType, consentJustGiven = false) {
+    // never a dead button: if consent isn't ticked yet, ask for one tick, then go straight to the camera
+    if (!consentJustGiven && !consentAllows(consents, mode)) { setAskConsent({ mode }); return; }
     const st = await checkStorage({ warn: settings.storage_warn_pct, critical: settings.storage_critical_pct });
     if (!st.ok) { toast.err(st.message!); return; }
     if (st.level === 'low') toast.info(st.message!);
     ctxCache.current = await buildCtx();
     setCamera(mode);
   }
-  async function onImport(files: File[]) {
+  async function onImport(files: File[], consentJustGiven = false) {
+    if (!consentJustGiven && files.some((f) => !consentAllows(consents, f.type.startsWith('image/') ? 'photo' : f.type.startsWith('audio/') ? 'audio' : 'video'))) { setAskConsent({ files }); return; }
     const ctx = await buildCtx();
     for (const f of files) {
-      const type: MediaType = f.type.startsWith('image/') ? 'photo' : f.type.startsWith('audio/') ? 'audio' : 'video';
-      if (!consentAllows(consents, type)) { toast.err(`${f.name}: ${type} consent not granted — skipped`); continue; }
       try { const m = await importExternal(ctx, f); toast.ok(`Imported & verified · ${m.filename} · ${formatBytes(m.size_bytes)}`); }
       catch (e: any) { toast.err(`${f.name}: NOT imported — ${e.message}`); }
     }
@@ -143,7 +144,15 @@ export default function StagePage() {
   const status = data.inst?.status ?? (data.media.length ? 'media_recorded' : 'not_started');
   const filled = filledCount(values, stage.params);
   const shownMedia = data.media.filter((m) => subFilter === 'all' || !sub || m.subcategory_code === sub).sort((a, b) => (b.recorded_at ?? '').localeCompare(a.recorded_at ?? ''));
-  const consentMissing = (['video', 'photo', 'audio'] as MediaType[]).filter((t) => !consentAllows(consents, t));
+  const consentMissing = (['video', 'photo', 'audio'] as MediaType[]).some((t) => !consentAllows(consents, t));
+  async function giveConsent() {
+    await grantRecordingConsent(patient.id, profile?.id ?? null, settings.consent_version);
+    toast.ok('Consent ticked — you can record now');
+    const pending = askConsent;
+    setAskConsent(null);
+    if (pending?.mode) openCamera(pending.mode, true);
+    if (pending?.files) onImport(pending.files, true);
+  }
 
   return (
     <Shell>
@@ -170,11 +179,11 @@ export default function StagePage() {
         </div>
       </div>
 
-      {consentMissing.length > 0 && (
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-amber-50 p-4 text-sm text-amber-900">
-          <span className="flex items-center gap-2"><ShieldAlert className="h-5 w-5" />Consent not granted for: {consentMissing.join(', ')}. Those recording types are disabled.</span>
-          <Link href={`/patient/?id=${patient.id}`}><Button size="sm" variant="secondary">Record consent</Button></Link>
-        </div>
+      {consentMissing && (
+        <button onClick={giveConsent} className="mb-4 flex w-full items-center gap-4 rounded-2xl border-2 border-amber-300 bg-amber-50 p-4 text-left active:scale-[.99]">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border-2 border-amber-500 bg-white" />
+          <span className="text-[17px] font-medium text-navy-900">Patient agreed to photos, videos and audio recording<span className="block text-sm font-normal text-navy-500">Tap to tick</span></span>
+        </button>
       )}
 
       {stageCode === 'S12' && (
@@ -217,9 +226,9 @@ export default function StagePage() {
           {stage.views && <Field label="Standard view (optional)"><Select options={stage.views} value={(recCtx.standard_view?.v as string) ?? ''} onChange={(v) => setRecCtx({ ...recCtx, standard_view: { v: v || null } })} placeholder="Not specified" /></Field>}
         </div>
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <Button size="xl" variant="record" disabled={!consentAllows(consents, 'video')} onClick={() => openCamera('video')}><Video className="h-7 w-7" />Record Video</Button>
-          <Button size="xl" variant="primary" disabled={!consentAllows(consents, 'photo')} onClick={() => openCamera('photo')}><Camera className="h-7 w-7" />Take Photograph</Button>
-          <Button size="xl" variant="secondary" disabled={!consentAllows(consents, 'audio')} onClick={() => openCamera('audio')}><Mic className="h-7 w-7" />Record Audio</Button>
+          <Button size="xl" variant="record" onClick={() => openCamera('video')}><Video className="h-7 w-7" />Record Video</Button>
+          <Button size="xl" variant="primary" onClick={() => openCamera('photo')}><Camera className="h-7 w-7" />Take Photograph</Button>
+          <Button size="xl" variant="secondary" onClick={() => openCamera('audio')}><Mic className="h-7 w-7" />Record Audio</Button>
           <Button size="xl" variant="secondary" onClick={() => importRef.current?.click()}><Upload className="h-7 w-7" />Import Media</Button>
           <input ref={importRef} type="file" hidden multiple accept="image/*,video/*,audio/*" onChange={(e) => { onImport(Array.from(e.target.files ?? [])); e.target.value = ''; }} />
         </div>
@@ -293,6 +302,16 @@ export default function StagePage() {
             <div className="font-semibold">{patient.patient_code} · {session.session_code} · {stage.code} {stage.title}</div>
             <div className="text-white/70">{subcat?.label ?? 'No subcategory'}{region ? ` · ${region}` : ''}{batchId ? ` · ${data.batches.find((b) => b.id === batchId)?.batch_code}` : ''}{ctxCache.current.paramVersion ? ` · params v${ctxCache.current.paramVersion.version_no}` : ''}</div>
           </>} />
+      )}
+
+      {askConsent && (
+        <Modal open onClose={() => setAskConsent(null)} title="Consent">
+          <button onClick={giveConsent} className="flex w-full items-center gap-4 rounded-2xl border-2 border-teal-500 bg-teal-50 p-5 text-left active:scale-[.99]">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border-2 border-teal-600 bg-white"><Check className="h-7 w-7 text-teal-600" /></span>
+            <span className="text-lg font-semibold text-navy-900">Patient agreed to photos, videos and audio recording</span>
+          </button>
+          <p className="mt-3 text-sm text-navy-500">Tick once and the camera opens. This is saved for this patient, so you won&apos;t be asked again.</p>
+        </Modal>
       )}
 
       {history && (

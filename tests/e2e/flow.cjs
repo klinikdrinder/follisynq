@@ -44,12 +44,9 @@ const pushed = [];
   await page.click('text=Start New Procedure');
   await page.locator('.fixed button:has-text("New patient")').click();
   await page.fill('label:has-text("Patient full name") input', 'E2E Synthetic Patient');
-  for (const label of ['Clinical photography', 'Clinical video recording']) {
-    await page.locator(`div:has(> span:text-is("${label}"))`).locator('button:has-text("Granted")').click();
-  }
   await page.click('button:has-text("Create & open session")');
   await page.waitForSelector('text=Procedural stages');
-  step('patient created with minimal info + consent; session opened');
+  step('patient created with only a name (consent not ticked yet); session opened');
   await page.screenshot({ path: 'tests/e2e/02-session.png' });
 
   await page.click('a:has-text("FUE Harvesting")');
@@ -57,6 +54,8 @@ const pushed = [];
   step('navigated directly to FUE harvesting (all fields blank)');
   await page.click('button:has-text("Continuous punching")');
   await page.click('button:has-text("Record Video")');
+  await page.locator('.fixed button:has-text("Patient agreed to photos, videos and audio recording")').click();
+  step('Record tapped without consent → single tick → camera opens');
   await page.waitForSelector('button[aria-label="Start recording"]:not([disabled])', { timeout: 15000 });
   await page.click('button[aria-label="Start recording"]');
   await page.waitForSelector('text=REC');

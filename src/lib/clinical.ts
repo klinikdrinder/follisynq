@@ -89,3 +89,11 @@ export function completion(values: Values, defs: { key: string }[]) {
   if (!defs.length) return 0;
   return Math.round((defs.filter((d) => isFilled(values[d.key])).length / defs.length) * 100);
 }
+
+/** One tick = clinical photography, video and audio recording consent (research/AI consent stays separate). */
+export async function grantRecordingConsent(patientId: string, confirmedBy: string | null, version: string | null) {
+  const today = new Date().toISOString().slice(0, 10);
+  for (const t of ['photography', 'video', 'audio']) {
+    await setConsent(patientId, t, { status: 'granted', consent_date: today, consent_version: version, confirmed_by: confirmedBy, withdrawn_at: null, withdrawal_reason: null });
+  }
+}
