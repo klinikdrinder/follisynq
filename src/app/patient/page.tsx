@@ -13,7 +13,8 @@ import { one, list, save } from '@/lib/repo';
 import { createSession, setConsent, Values } from '@/lib/clinical';
 import { CLASSIFICATIONS, ETHNICITY_OPTIONS } from '@/lib/catalog';
 import { isoDate, uuid, daysBetween } from '@/lib/naming';
-import { ArrowLeft, Plus, Save, Film, CalendarClock } from 'lucide-react';
+import { ArrowLeft, Plus, Save, Film, CalendarClock, Trash2, RotateCcw } from 'lucide-react';
+import { deletePatient, restorePatient } from '@/lib/trash';
 
 type Tab = 'overview' | 'clinical_history' | 'hair' | 'scalp' | 'consents' | 'timeline' | 'media';
 
@@ -23,6 +24,7 @@ export default function PatientPage() {
   const router = useRouter();
   const { catalog, branches, staff, profile, settings } = useApp();
   const [tab, setTab] = useState<Tab>('overview');
+  const [confirmDel, setConfirmDel] = useState(false);
   const data = useData(async () => {
     if (!id) return null;
     const [p, demo, hist, hair, scalp, consents, sessions, encounters, media] = await Promise.all([
@@ -43,8 +45,26 @@ export default function PatientPage() {
         back={<Link href="/patients/" className="mb-1 inline-flex items-center gap-1 text-sm text-navy-500"><ArrowLeft className="h-4 w-4" />Patients</Link>}
         title={<span className="flex items-center gap-3">{p.full_name || '(name not recorded)'}<Badge tone="navy">{p.patient_code}</Badge></span>}
         sub={`${p.mrn ? `MRN ${p.mrn} · ` : ''}Registered ${p.registration_date}${p.branch_id ? ` · ${branches.find((b) => b.id === p.branch_id)?.name ?? ''}` : ''}`}
-        actions={<Button variant="teal" onClick={async () => { const s = await createSession(p.id, { branch_id: p.branch_id, lead_surgeon_id: profile?.role === 'doctor' ? profile.id : p.assigned_doctor_id }); router.push(`/session/?id=${s.id}`); }}><Plus className="h-5 w-5" />New surgical session</Button>}
+        actions={p.deleted_at ? undefined : <>
+          <Button variant="secondary" className="!border-red-200 !text-red-600" onClick={() => setConfirmDel(true)}><Trash2 className="h-4 w-4" />Delete patient</Button>
+          <Button variant="teal" onClick={async () => { const s = await createSession(p.id, { branch_id: p.branch_id, lead_surgeon_id: profile?.role === 'doctor' ? profile.id : p.assigned_doctor_id }); router.push(`/session/?id=${s.id}`); }}><Plus className="h-5 w-5" />New surgical session</Button>
+        </>}
       />
+      {p.deleted_at && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border-2 border-amber-300 bg-amber-50 p-4">
+          <span className="text-[15px] text-navy-900">This patient is in <b>Recently deleted</b>. Their sessions and media are hidden.</span>
+          <Button variant="teal" onClick={async () => { await restorePatient(p.id); toast.ok('Patient restored with all sessions and media'); }}><RotateCcw className="h-4 w-4" />Restore patient</Button>
+        </div>
+      )}
+      <Modal open={confirmDel} onClose={() => setConfirmDel(false)} title={`Delete ${p.full_name || p.patient_code}?`}
+        footer={<><Button variant="ghost" onClick={() => setConfirmDel(false)}>Cancel</Button><Button variant="danger" size="lg" onClick={async () => {
+          const r = await deletePatient(p.id);
+          setConfirmDel(false);
+          toast.ok(`Moved to Recently deleted (${r.sessions} session${r.sessions === 1 ? '' : 's'}, ${r.media} media)`);
+          router.push('/patients/');
+        }}><Trash2 className="h-5 w-5" />Delete</Button></>}>
+        <p className="text-[15px] text-navy-700">The patient, their {data.sessions.length} session{data.sessions.length === 1 ? '' : 's'} and {data.media.length} media item{data.media.length === 1 ? '' : 's'} move to <b>Recently deleted</b> in the Patient library. You can restore everything with one tap.</p>
+      </Modal>
       <div className="mb-4"><Tabs value={tab} onChange={setTab} tabs={[
         { v: 'overview', l: 'Overview' }, { v: 'clinical_history', l: 'Clinical history' }, { v: 'hair', l: 'Hair' }, { v: 'scalp', l: 'Scalp' },
         { v: 'consents', l: 'Consents' }, { v: 'timeline', l: `Sessions (${data.sessions.length})` }, { v: 'media', l: `Media (${data.media.length})` },

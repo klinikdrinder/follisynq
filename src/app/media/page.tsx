@@ -7,7 +7,7 @@ import { MediaGrid } from '@/components/MediaGallery';
 import { list } from '@/lib/repo';
 import { getDB } from '@/lib/db';
 import { getDeviceId } from '@/lib/auth';
-import { Film, Search, SlidersHorizontal } from 'lucide-react';
+import { Film, Search, SlidersHorizontal, Trash2 } from 'lucide-react';
 
 const PARAM_FILTERS = [
   { k: 'punch_diameter', l: 'Punch diameter (mm)', st: 'S06' }, { k: 'punch_type', l: 'Punch type', st: 'S06' },
@@ -21,9 +21,10 @@ export default function MediaLibrary() {
   const [q, setQ] = useState('');
   const [f, setF] = useState<Record<string, string>>({});
   const [more, setMore] = useState(false);
+  const [bin, setBin] = useState(false);
   const data = useData(async () => {
     const [media, patients, sessions, snaps, hist, hair, consents, devices, locs, outbox] = await Promise.all([
-      list<any>('media_assets', (m) => !m.deleted_at), list<any>('patients'), list<any>('surgical_sessions'), list<any>('media_metadata_snapshots'),
+      list<any>('media_assets'), list<any>('patients'), list<any>('surgical_sessions'), list<any>('media_metadata_snapshots'),
       list<any>('patient_clinical_history'), list<any>('patient_hair_characteristics'), list<any>('patient_consents'), list<any>('registered_devices'),
       list<any>('media_storage_locations'), getDB().then((d) => d.getAll('outbox')),
     ]);
@@ -36,6 +37,7 @@ export default function MediaLibrary() {
   const rows = useMemo(() => {
     if (!data) return [];
     return data.media.filter((m) => {
+      if (!!m.deleted_at !== bin) return false;
       const p = data.patients.find((x) => x.id === m.patient_id);
       const s = data.sessions.find((x) => x.id === m.session_id);
       if (q && ![p?.full_name, p?.patient_code, s?.session_code, m.filename].some((x) => x?.toLowerCase().includes(q.toLowerCase()))) return false;
@@ -65,14 +67,15 @@ export default function MediaLibrary() {
       }
       return true;
     }).sort((a, b) => (b.recorded_at ?? '').localeCompare(a.recorded_at ?? ''));
-  }, [data, q, f, deviceId]);
+  }, [data, q, f, deviceId, bin]);
 
   const set = (k: string) => (v: string) => setF({ ...f, [k]: v });
   const distinct = (k: string) => Array.from(new Set((data ? Array.from(data.snaps.values()) : []).map((s: any) => s?.clinical_context?.parameters?.[k]?.v).filter((x) => x != null).map(String))).sort();
 
   return (
     <Shell>
-      <PageHeader title="Media library" sub={`${rows.length} item${rows.length === 1 ? '' : 's'} · playback available only for media stored on this iPad`} />
+      <PageHeader title={bin ? 'Recently deleted' : 'Media library'} sub={bin ? 'Tap an item to restore it' : `${rows.length} item${rows.length === 1 ? '' : 's'} · playback available only for media stored on this iPad`}
+        actions={<Button variant={bin ? 'primary' : 'secondary'} onClick={() => setBin(!bin)}><Trash2 className="h-4 w-4" />{bin ? 'Back to media' : `Recently deleted (${data?.media.filter((m) => m.deleted_at).length ?? 0})`}</Button>} />
       <Card className="mb-4 p-4">
         <div className="mb-3 flex gap-2">
           <div className="relative flex-1"><Search className="absolute left-3 top-3 h-5 w-5 text-navy-300" /><Input className="pl-10" placeholder="Search patient, code, session or filename" value={q} onChange={(e) => setQ(e.target.value)} /></div>
@@ -105,7 +108,7 @@ export default function MediaLibrary() {
           </div>
         )}
       </Card>
-      <MediaGrid media={rows} empty={<Card><Empty icon={<Film className="h-10 w-10" />} title="No media match these filters" /></Card>} />
+      <MediaGrid media={rows} empty={<Card><Empty icon={<Film className="h-10 w-10" />} title={bin ? 'Nothing in Recently deleted' : 'No media match these filters'} /></Card>} />
     </Shell>
   );
 }

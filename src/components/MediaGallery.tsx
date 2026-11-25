@@ -1,11 +1,12 @@
 'use client';
 import React, { useEffect, useState } from 'react';
-import { Film, Image as ImageIcon, Mic, Smartphone, CloudOff, AlertTriangle, CheckCircle2, Clock, ShieldCheck } from 'lucide-react';
+import { Trash2, RotateCcw, Film, Image as ImageIcon, Mic, Smartphone, CloudOff, AlertTriangle, CheckCircle2, Clock, ShieldCheck } from 'lucide-react';
 import { availabilityOf, thumbUrl, amendMedia, Availability } from '@/lib/media';
 import { opfs } from '@/lib/storage/opfs';
 import { formatBytes, formatDuration } from '@/lib/naming';
 import { list } from '@/lib/repo';
 import { getDB } from '@/lib/db';
+import { deleteMedia, restoreMedia, purgeMediaFiles } from '@/lib/trash';
 import { Badge, Button, Modal, Field, Select, Textarea, Input, cx, toast } from './ui';
 import { useApp } from './AppProvider';
 
@@ -49,7 +50,7 @@ export function MediaTile({ m, onOpen, pendingSync, backup }: { m: any; onOpen: 
           <div className="flex h-full items-center justify-center text-navy-200"><TypeIcon t={m.media_type} className="h-10 w-10" /></div>}
         <span className="absolute left-2 top-2 rounded-full bg-black/60 px-2 py-0.5 text-[11px] font-medium text-white">{m.stage_code} · #{String(m.sequence_no ?? '').padStart(3, '0')}</span>
         {m.duration_ms != null && <span className="absolute bottom-2 right-2 rounded bg-black/60 px-1.5 py-0.5 text-[11px] text-white tabular-nums">{formatDuration(m.duration_ms)}</span>}
-        {m.deleted_at && <span className="absolute inset-0 flex items-center justify-center bg-white/70 text-xs font-medium text-navy-600">Superseded</span>}
+        {m.deleted_at && <span className="absolute inset-0 flex items-center justify-center bg-white/70 text-xs font-medium text-navy-600">{m.notes?.includes('Superseded') ? 'Superseded' : 'Deleted'}</span>}
       </div>
       <div className="space-y-1.5 p-3">
         <div className="truncate text-[13px] font-medium text-navy-800">{m.subcategory_code ?? 'General'}{m.region ? ` · ${m.region}` : ''}</div>
@@ -85,7 +86,9 @@ export function MediaGrid({ media, empty }: { media: any[]; empty?: React.ReactN
 }
 
 export function MediaViewer({ media, onClose }: { media: any; onClose: () => void }) {
-  const { catalog, staff } = useApp();
+  const { catalog, staff, profile } = useApp();
+  const [confirm, setConfirm] = useState<null | 'delete' | 'purge'>(null);
+  const [busy, setBusy] = useState(false);
   const [url, setUrl] = useState<string | null>(null);
   const [avail, setAvail] = useState<Availability | 'loading'>('loading');
   const [verify, setVerify] = useState<string | null>(null);
@@ -132,7 +135,16 @@ export function MediaViewer({ media, onClose }: { media: any; onClose: () => voi
           <div className="mt-3 flex flex-wrap gap-2">
             {avail === 'local' && <Button variant="secondary" size="sm" onClick={runVerify}>Verify integrity</Button>}
             <Button variant="secondary" size="sm" onClick={() => { setDraft({ stage_code: media.stage_code, subcategory_code: media.subcategory_code, region: media.region, notes: media.notes, recording_context: media.recording_context ?? {} }); setEdit(true); }}>Edit / reclassify</Button>
+            {!media.deleted_at ? (
+              <Button variant="secondary" size="sm" className="!border-red-200 !text-red-600" onClick={() => setConfirm('delete')}><Trash2 className="h-4 w-4" />Delete</Button>
+            ) : (
+              <>
+                <Button variant="teal" size="sm" onClick={async () => { await restoreMedia(media); toast.ok('Restored'); onClose(); }}><RotateCcw className="h-4 w-4" />Restore</Button>
+                {profile?.role === 'admin' && avail === 'local' && <Button variant="danger" size="sm" onClick={() => setConfirm('purge')}><Trash2 className="h-4 w-4" />Delete permanently</Button>}
+              </>
+            )}
           </div>
+          {media.deleted_at && <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">This item is in Recently deleted. It is hidden everywhere else and can be restored.</p>}
           {verify && <p className={cx('mt-2 text-sm', verify.includes('FAILED') ? 'text-red-600' : 'text-emerald-700')}>{verify}</p>}
         </div>
         <div className="space-y-2 text-sm">
@@ -159,6 +171,19 @@ export function MediaViewer({ media, onClose }: { media: any; onClose: () => voi
           )}
         </div>
       </div>
+      <Modal open={!!confirm} onClose={() => setConfirm(null)} title={confirm === 'purge' ? 'Delete permanently?' : `Delete this ${media.media_type === 'photo' ? 'photo' : media.media_type}?`}
+        footer={<><Button variant="ghost" onClick={() => setConfirm(null)}>Cancel</Button><Button variant="danger" size="lg" disabled={busy} onClick={async () => {
+          setBusy(true);
+          try {
+            if (confirm === 'purge') { await purgeMediaFiles(media, profile!.id); toast.ok('Original file erased from this iPad'); }
+            else { await deleteMedia(media); toast.ok('Moved to Recently deleted'); }
+            setConfirm(null); onClose();
+          } catch (e: any) { toast.err(e.message); } finally { setBusy(false); }
+        }}><Trash2 className="h-5 w-5" />{confirm === 'purge' ? 'Erase file' : 'Delete'}</Button></>}>
+        <p className="text-[15px] text-navy-700">{confirm === 'purge'
+          ? 'The original file will be erased from this iPad and cannot be recovered unless you have a backup. The record stays in the audit trail.'
+          : 'It moves to Recently deleted in the Media library. You can restore it any time.'}</p>
+      </Modal>
       <Modal open={edit} onClose={() => setEdit(false)} title="Amend media metadata"
         footer={<><Button variant="ghost" onClick={() => setEdit(false)}>Cancel</Button><Button disabled={!reason.trim()} onClick={async () => {
           await amendMedia(media, draft, reason.trim()); toast.ok('Amendment recorded (original identifiers unchanged)'); setEdit(false); onClose();

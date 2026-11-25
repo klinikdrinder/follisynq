@@ -7,16 +7,17 @@ import { Button, Card, Input, Select, Badge, Empty, PageHeader } from '@/compone
 import { NewPatientModal } from '@/components/NewPatient';
 import { list } from '@/lib/repo';
 import { CLASSIFICATIONS } from '@/lib/catalog';
-import { UserPlus, Search, Users, ChevronRight } from 'lucide-react';
+import { UserPlus, Search, Users, ChevronRight, Trash2 } from 'lucide-react';
 
 export default function Patients() {
   const { branches, staff } = useApp();
   const [q, setQ] = useState('');
   const [f, setF] = useState<Record<string, string>>({});
   const [open, setOpen] = useState(false);
+  const [bin, setBin] = useState(false);
   const data = useData(async () => {
     const [patients, hist, hair, consents, sessions, media] = await Promise.all([
-      list<any>('patients', (p) => !p.deleted_at), list<any>('patient_clinical_history'), list<any>('patient_hair_characteristics'),
+      list<any>('patients'), list<any>('patient_clinical_history'), list<any>('patient_hair_characteristics'),
       list<any>('patient_consents'), list<any>('surgical_sessions', (s) => !s.deleted_at), list<any>('media_assets', (m) => !m.deleted_at),
     ]);
     return { patients, hist, hair, consents, sessions, media };
@@ -30,6 +31,7 @@ export default function Patients() {
       const ss = data.sessions.filter((s) => s.patient_id === p.id);
       return { p, h, hc, c, ss, mediaCount: data.media.filter((m) => m.patient_id === p.id).length, lastDate: ss.map((s) => s.surgery_date).filter(Boolean).sort().pop() };
     }).filter(({ p, h, hc, c, ss, lastDate }) => {
+      if (!!p.deleted_at !== bin) return false;
       if (q && ![p.full_name, p.mrn, p.patient_code].some((x) => x?.toLowerCase().includes(q.toLowerCase()))) return false;
       if (f.branch && p.branch_id !== f.branch) return false;
       if (f.doctor && p.assigned_doctor_id !== f.doctor && !ss.some((s) => s.lead_surgeon_id === f.doctor)) return false;
@@ -44,12 +46,16 @@ export default function Patients() {
       if (f.to && (!lastDate || lastDate > f.to)) return false;
       return true;
     }).sort((a, b) => (b.p.created_at ?? '').localeCompare(a.p.created_at ?? ''));
-  }, [data, q, f]);
+  }, [data, q, f, bin]);
   const set = (k: string) => (v: string) => setF({ ...f, [k]: v });
 
   return (
     <Shell>
-      <PageHeader title="Patient library" sub={`${rows.length} patient${rows.length === 1 ? '' : 's'}`} actions={<Button onClick={() => setOpen(true)}><UserPlus className="h-5 w-5" />New patient</Button>} />
+      <PageHeader title={bin ? 'Recently deleted patients' : 'Patient library'} sub={bin ? 'Open a patient to restore them' : `${rows.length} patient${rows.length === 1 ? '' : 's'}`}
+        actions={<>
+          <Button variant={bin ? 'primary' : 'secondary'} onClick={() => setBin(!bin)}><Trash2 className="h-4 w-4" />{bin ? 'Back to patients' : `Recently deleted (${data?.patients.filter((p) => p.deleted_at).length ?? 0})`}</Button>
+          {!bin && <Button onClick={() => setOpen(true)}><UserPlus className="h-5 w-5" />New patient</Button>}
+        </>} />
       <Card className="mb-4 p-4">
         <div className="relative mb-3"><Search className="absolute left-3 top-3 h-5 w-5 text-navy-300" /><Input className="pl-10" placeholder="Search name, patient code or MRN" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8">

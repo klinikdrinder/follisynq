@@ -108,6 +108,41 @@ const pushed = [];
   step('session completed with incomplete stages, then reopened');
   await page.screenshot({ path: 'tests/e2e/05-summary.png', fullPage: true });
 
+  // delete + restore media
+  await page.goto('http://localhost:4123/media/');
+  await page.waitForSelector('text=Media library');
+  const before = await page.locator('main button.group').count();
+  await page.locator('main button.group').first().click();
+  await page.click('.fixed button:has-text("Delete")');
+  await page.locator('.fixed button:has-text("Delete")').last().click();
+  await page.waitForSelector('text=Moved to Recently deleted');
+  await page.waitForTimeout(500);
+  const after = await page.locator('main button.group').count();
+  if (after !== before - 1) throw new Error(`media count ${before} -> ${after}`);
+  await page.click('button:has-text("Recently deleted (1)")');
+  await page.locator('main button.group').first().click();
+  await page.click('.fixed button:has-text("Restore")');
+  await page.waitForSelector('text=Restored');
+  await page.waitForTimeout(500);
+  const del = await page.evaluate(() => new Promise((res) => { const r = indexedDB.open('follisync'); r.onsuccess = () => { const q = r.result.transaction('media_assets').objectStore('media_assets').getAll(); q.onsuccess = () => res(q.result.map((m) => m.media_type + ':' + (m.deleted_at ? 'DEL' : 'ok'))); }; }));
+  console.log('  media after restore:', del.join(', '));
+  step(`media deleted (${before}→${after}), shown in Recently deleted, restored`);
+  // delete + restore patient
+  await page.goto('http://localhost:4123/patients/');
+  await page.click('text=E2E Synthetic Patient');
+  await page.click('button:has-text("Delete patient")');
+  await page.locator('.fixed button:has-text("Delete")').last().click();
+  await page.waitForSelector('button:has-text("Recently deleted (1)")');
+  if (await page.locator('main a:has-text("E2E Synthetic Patient")').count()) throw new Error('deleted patient still listed');
+  await page.click('button:has-text("Recently deleted (1)")');
+  await page.click('text=E2E Synthetic Patient');
+  await page.click('button:has-text("Restore patient")');
+  await page.waitForSelector('text=Patient restored');
+  await page.waitForSelector('button:has-text("Delete patient")');
+  const mediaTab = await page.locator('button:has-text("Media (")').textContent();
+  step(`patient deleted, hidden, restored with everything (${mediaTab.trim()})`);
+  await page.screenshot({ path: 'tests/e2e/06-patient.png' });
+
   await page.evaluate(() => window.dispatchEvent(new Event('online')));
   await page.waitForTimeout(3000);
   const tables = [...new Set(pushed.map((o) => o.table))];
