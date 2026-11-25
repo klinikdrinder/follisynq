@@ -47,7 +47,7 @@ tests/e2e           Playwright: full recording workflow with a fake camera
 ```
 
 ## 3. Supabase setup (already done for project `follisync`, ref `wyxclgtiwrqyecfwgobf`, Singapore)
-1. Apply `supabase/migrations/0001…`, `0002…` and `0003…` in order. On a fresh project, regenerate 0003 first with `npm run gen:seed`.
+1. Apply `supabase/migrations/0001…` to `0004…` in order. On a fresh project, regenerate 0003 first with `npm run gen:seed`.
    *Live project note:* the organisation, branches and roles were seeded by migration. The clinical catalogue (stages, subcategories, parameters, regions) installs itself automatically on the administrator's first sign-in. It can be re-run from **Settings › Clinical catalogue**, and existing entries are kept.
 2. Deploy the edge function: `supabase functions deploy admin-staff` (JWT verification on).
 3. **Dashboard steps the owner must do:**
@@ -79,7 +79,7 @@ Only the publishable key goes into the frontend; RLS protects every table. **Nev
 7. Settings › Devices: label each iPad (e.g. "OT-1 iPad").
 
 ## 7. iPad installation
-1. Open the Vercel URL in **Safari** on a clinic-managed, passcode-protected iPad.
+1. Open **https://follisync-klinikdrinder1.vercel.app** in **Safari** on a clinic-managed, passcode-protected iPad.
 2. Share › **Add to Home Screen** › open Follisync from the Home Screen icon.
 3. Sign in once while online. This registers the device and downloads metadata and the catalogue.
 4. Allow camera and microphone when asked. If access was denied: Settings › Safari › Camera / Microphone › Allow.
